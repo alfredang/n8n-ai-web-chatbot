@@ -2,6 +2,8 @@
 
 A customer support FAQ chatbot powered by n8n AI Agent workflows with RAG (Retrieval-Augmented Generation). The web chatbot communicates with an n8n webhook that triggers an AI agent to respond using a dynamic knowledge base.
 
+![Chatbot Screenshot](screenshot.png)
+
 ## Architecture
 
 ```
