@@ -1,16 +1,16 @@
 {
-  "name": "BELLS FAQ - Upload & Load to Vector Store",
+  "name": "Upload & Load to Vector Store",
   "nodes": [
     {
       "parameters": {
         "formTitle": "Upload FAQ Document",
-        "formDescription": "Upload a .docx or .pdf file to load into the BELLS FAQ knowledge base.",
+        "formDescription": "Upload a .docx, .pdf, or .xlsx file to load into the BELLS FAQ knowledge base.",
         "formFields": {
           "values": [
             {
               "fieldLabel": "FAQ Document",
               "fieldType": "file",
-              "acceptFileTypes": ".pdf,.docx",
+              "acceptFileTypes": ".pdf,.docx,.xlsx,.xls",
               "requiredField": true
             }
           ]
@@ -29,19 +29,141 @@
       "typeVersion": 2.2,
       "position": [
         112,
-        304
+        208
       ],
       "webhookId": "bells-faq-upload"
     },
     {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "xlsx-check",
+              "leftValue": "={{ $json[\"FAQ Document\"][0].filename }}",
+              "rightValue": ".xlsx",
+              "operator": {
+                "type": "string",
+                "operation": "endsWith"
+              }
+            },
+            {
+              "id": "xls-check",
+              "leftValue": "={{ $json[\"FAQ Document\"][0].filename }}",
+              "rightValue": ".xls",
+              "operator": {
+                "type": "string",
+                "operation": "endsWith"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "switch-filetype",
+      "name": "Is Spreadsheet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        336,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "id": "extract-xlsx",
+      "name": "Extract from Spreadsheet",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        112,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const binaryKey = Object.keys(item.binary)[0];\n  const binaryData = item.binary[binaryKey];\n  \n  // Use n8n's built-in spreadsheet parsing\n  const workbook = await import('xlsx').then(m => m.default || m).catch(() => null);\n  \n  if (workbook) {\n    const buffer = Buffer.from(binaryData.data, 'base64');\n    const wb = workbook.read(buffer, { type: 'buffer' });\n    \n    let allText = '';\n    for (const sheetName of wb.SheetNames) {\n      const sheet = wb.Sheets[sheetName];\n      const rows = workbook.utils.sheet_to_json(sheet, { header: 1 });\n      const headers = rows[0] || [];\n      \n      for (let i = 1; i < rows.length; i++) {\n        const row = rows[i];\n        if (!row || row.length === 0) continue;\n        const pairs = headers.map((h, idx) => `${h}: ${row[idx] || ''}`).join('. ');\n        allText += pairs + '\\n\\n';\n      }\n    }\n    \n    results.push({ json: { text: allText, filename: binaryData.fileName } });\n  } else {\n    // Fallback: convert CSV-like\n    const text = Buffer.from(binaryData.data, 'base64').toString('utf-8');\n    results.push({ json: { text: text, filename: binaryData.fileName } });\n  }\n}\n\nreturn results;"
+      },
+      "id": "code-xlsx-to-text",
+      "name": "Spreadsheet to Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "memoryKey": {
+          "__rl": true,
+          "value": "bell2",
+          "mode": "list"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.3,
+      "position": [
+        592,
+        400
+      ],
+      "id": "8726d14e-c06f-4399-8219-918536988e28",
+      "name": "Vector Store (Doc)"
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "memoryKey": {
+          "__rl": true,
+          "value": "bell2",
+          "mode": "list"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.3,
+      "position": [
+        1088,
+        0
+      ],
+      "id": "vs-xlsx-insert",
+      "name": "Vector Store (Spreadsheet)"
+    },
+    {
       "parameters": {},
       "id": "form-0004-embeddings",
-      "name": "Gemini Embeddings",
+      "name": "Gemini Embeddings (Doc)",
       "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
       "typeVersion": 1,
       "position": [
-        272,
-        576
+        560,
+        624
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "jzHFVgflAXrDk952",
+          "name": "Google Gemini API Key"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "embed-xlsx",
+      "name": "Gemini Embeddings (Spreadsheet)",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1056,
+        224
       ],
       "credentials": {
         "googlePalmApi": {
@@ -64,12 +186,34 @@
         }
       },
       "id": "form-0005-loader",
-      "name": "Default Data Loader",
+      "name": "Default Data Loader (Doc)",
       "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
       "typeVersion": 1,
       "position": [
-        496,
-        528
+        688,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "source",
+                "value": "BELLS FAQ Upload (Spreadsheet)"
+              }
+            ]
+          }
+        }
+      },
+      "id": "loader-xlsx",
+      "name": "Default Data Loader (Spreadsheet)",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1,
+      "position": [
+        1184,
+        224
       ]
     },
     {
@@ -79,31 +223,28 @@
         "options": {}
       },
       "id": "form-0006-splitter",
-      "name": "Text Splitter",
+      "name": "Text Splitter (Doc)",
       "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
       "typeVersion": 1,
       "position": [
-        496,
-        688
+        768,
+        832
       ]
     },
     {
       "parameters": {
-        "mode": "insert",
-        "memoryKey": {
-          "__rl": true,
-          "value": "bell2",
-          "mode": "list"
-        }
+        "chunkSize": 500,
+        "chunkOverlap": 50,
+        "options": {}
       },
-      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
-      "typeVersion": 1.3,
+      "id": "splitter-xlsx",
+      "name": "Text Splitter (Spreadsheet)",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
       "position": [
-        320,
-        304
-      ],
-      "id": "8726d14e-c06f-4399-8219-918536988e28",
-      "name": "Simple Vector Store"
+        1264,
+        432
+      ]
     }
   ],
   "pinData": {},
@@ -112,40 +253,102 @@
       "main": [
         [
           {
-            "node": "Simple Vector Store",
+            "node": "Is Spreadsheet?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Gemini Embeddings": {
+    "Is Spreadsheet?": {
+      "main": [
+        [
+          {
+            "node": "Spreadsheet to Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Vector Store (Doc)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Spreadsheet to Text": {
+      "main": [
+        [
+          {
+            "node": "Vector Store (Spreadsheet)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Embeddings (Doc)": {
       "ai_embedding": [
         [
           {
-            "node": "Simple Vector Store",
+            "node": "Vector Store (Doc)",
             "type": "ai_embedding",
             "index": 0
           }
         ]
       ]
     },
-    "Default Data Loader": {
+    "Gemini Embeddings (Spreadsheet)": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Vector Store (Spreadsheet)",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader (Doc)": {
       "ai_document": [
         [
           {
-            "node": "Simple Vector Store",
+            "node": "Vector Store (Doc)",
             "type": "ai_document",
             "index": 0
           }
         ]
       ]
     },
-    "Text Splitter": {
+    "Default Data Loader (Spreadsheet)": {
+      "ai_document": [
+        [
+          {
+            "node": "Vector Store (Spreadsheet)",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text Splitter (Doc)": {
       "ai_textSplitter": [
         [
           {
-            "node": "Default Data Loader",
+            "node": "Default Data Loader (Doc)",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text Splitter (Spreadsheet)": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Default Data Loader (Spreadsheet)",
             "type": "ai_textSplitter",
             "index": 0
           }
@@ -159,7 +362,7 @@
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false
   },
-  "versionId": "2069350a-da03-4eaa-b8d1-a18f42c113aa",
+  "versionId": "7b66637f-6229-4cdb-88ac-64b38005f40b",
   "meta": {
     "instanceId": "dd9d815cb100cab73a9cd63cc3f30fd090e73e9edbdc09a51a025bdf1bf015af"
   },
